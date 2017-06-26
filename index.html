@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=640, user-scalable=no">
+<title>web物理引擎p2.js</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/jquery.js"></script>
+<script src="js/p2.js" type="text/javascript"></script>
+<script src="js/easeljs-0.8.2.min.js"></script>
+<script src="js/tweenjs-0.6.2.min.js"></script>
+<script src="js/preloadjs-0.6.2.min.js"></script>
+<script src="js/loading.js"></script>
+</head>
+<body>
+<canvas width="500" height="700" id="myCanvas" style="background:#666"></canvas>
+<script>
+var canvas, stage, w, h;
+var world, circleBody, circleShape, circleBody2, circleShape2, boxBody, boxShape, mouseConstraint, mouseBody;
+var zoom=50, scaleX = 50, scaleY = 50;
+var circleObj1, circleObj2, RectObj;
+
+// Convert a canvas coordiante to physics coordinate
+function pc(x,y){
+	return [x/scaleX, y/scaleY];
+}
+function p(m){
+	return m/zoom;
+}
+function px(x){
+	return x/scaleX;
+}
+function py(x){
+	return y/scaleY;
+}
+//图片容器，size传入像素坐标数组，注册点移到中心，渲染绘制时从左上角画出
+function imgContainer(src,size){
+	var pw, ph;
+	if(size){pw = p(size[0]); ph = p(size[1]);}else{pw = p(src.width); ph = p(src.height);}
+    var bitmap = new createjs.Bitmap(src);
+	bitmap.scaleX = pw/src.width;
+	bitmap.scaleY = -ph/src.height;
+	bitmap.regX = pw/2;
+	bitmap.regY = ph/2;
+	return bitmap;
+	return new createjs.Container().addChild(bitmap);
+}
+//矩形容器，size传入像素坐标数组，c1为边框颜色，c2为填充颜色，l为边框粗细，注册点移到中心，渲染绘制时从中心点显示
+function rectContainer(size,c1,c2,l){
+	var pw = p(size[0]);
+	var ph = p(size[1]);
+	
+	var Rect = new createjs.Shape();
+    Rect.graphics.setStrokeStyle(p(l));
+    Rect.graphics.beginStroke(c1);
+	//Rect.graphics.beginFill(c2);
+	Rect.graphics.beginBitmapFill(loader.getResult("src5"),"no-repeat");
+	
+    Rect.graphics.drawRect(0, 0, size[0], size[1]);
+	Rect.graphics.endStroke();
+    Rect.graphics.endFill();
+	Rect.scaleX = 1/zoom;
+	Rect.scaleY = -1/zoom;
+	Rect.regX = size[0]/2;
+	Rect.regY = size[1]/2;
+	//return Rect;
+	var c = new createjs.Container();
+	var Text = new createjs.Text("我可以拖动，\n你拖我呀~","30px Arial","#fff");
+	Text.scaleX = 1/zoom;
+	Text.scaleY = -1/zoom;
+	Text.x=-pw/2;
+	Text.y=ph/2;	
+	c.addChild(Rect);
+	c.addChild(Text);
+	return c;
+}
+
+function initDraw(){
+	canvas = document.getElementById("myCanvas");
+	w = canvas.width;
+	h = canvas.height;
+	stage = new createjs.Stage(canvas);
+	createjs.Ticker.addEventListener("tick",stage);
+	// Transform the canvas
+	// Note that we need to flip the y axis since Canvas pixel coordinates
+	// goes from top to bottom, while physics does the opposite.
+	stage.x=0;
+	stage.y=h;
+	stage.scaleX=scaleX;
+	stage.scaleY=-scaleY;
+	
+	var bg = imgContainer(loader.getResult("src3"));
+	bg.rotation=0;
+	bg.x=p(0);
+	bg.y=p(700);
+	
+	stage.addChild(bg);
+	stage.update();
+
+	
+	// Create a physics world, where bodies and constraints live
+	world = new p2.World({
+		gravity:[0,-9.8]
+	});
+	//setInterval(function(){world.gravity[0]=Math.random()*10-5;},1000);
+	
+	//Body刚体位置指中心点坐标
+	circleBody = new p2.Body({ mass:1, position:pc(350,600) });// Create an empty dynamic body
+	// Add a circle shape to the body
+	circleShape = new p2.Circle({ radius: p(50) });
+	circleBody.addShape(circleShape);
+	world.addBody(circleBody);// ...and add the body to the world.
+	
+	circleBody2 = new p2.Body({ mass:1, position:pc(300,500) });// Create an empty dynamic body
+	// Add a circle shape to the body
+	circleShape2 = new p2.Circle({ radius: p(50) });
+	circleBody2.addShape(circleShape2);
+	world.addBody(circleBody2);// ...and add the body to the world.
+		
+	// Create an infinite ground plane body
+	var planeBody = new p2.Body({
+		mass: 0, // Setting mass to 0 makes it static
+		position:[0,0]
+	});
+	var planeShape = new p2.Plane();
+	planeBody.addShape(planeShape);
+	world.addBody(planeBody);	
+	// Left plane
+	var planeLeft = new p2.Body({
+		angle: -Math.PI/2,
+		position: [0, 0]
+	});
+	planeLeft.addShape(new p2.Plane());
+	world.addBody(planeLeft);
+	// Right plane
+	var planeRight = new p2.Body({
+		angle: Math.PI/2,
+		position: [p(500), 0]
+	});
+	planeRight.addShape(new p2.Plane());
+	world.addBody(planeRight);
+	// Top plane
+	var planeTopBody = new p2.Body({
+    	position: [0, p(700)]
+    });
+    planeTopBody.addShape(new p2.Plane(),[0,0],Math.PI);
+    world.addBody(planeTopBody);
+	
+	//从预加载图片中创建素材，渲染时把图片画到虚拟圆上去
+	circleObj1 = imgContainer(loader.getResult("src1"),[100,100]);
+	circleObj2 = imgContainer(loader.getResult("src2"),[100,100]);
+	
+	// Add a box
+	boxShape = new p2.Box({ width: p(200), height: p(100) });
+	boxBody = new p2.Body({
+	  mass:1,
+	  position:pc(150,500),
+	  angularVelocity:1,
+	  //fixedRotation:true
+	});
+	boxBody.addShape(boxShape);
+	world.addBody(boxBody);
+	
+	RectObj = rectContainer([200,100],'#000','#a86d4f',1);
+	//RectObj = imgContainer(loader.getResult("src5"),[200,100]);
+	/*RectObj.rotation=-30;
+	RectObj.x=p(150+100);
+	RectObj.y=p(150-50);
+	stage.addChild(RectObj);
+	stage.update();
+	createjs.Tween.get(RectObj,{loop:false},true)
+	.wait(1000)
+	.to({rotation:0},1000)
+    .call(function(){console.log('tween complete.')});
+	return;*/
+	
+	// Create a body for the cursor
+	mouseBody = new p2.Body();
+	world.addBody(mouseBody);
+	
+	canvas.addEventListener('mousedown', function(event){
+
+	  // Convert the canvas coordinate to physics coordinates
+	  var position = getPhysicsCoord(event);
+	  // Check if the cursor is inside the box
+	  var hitBodies = world.hitTest(position, [boxBody]);
+
+	  if(hitBodies.length){
+
+		// Move the mouse body to the cursor position
+		mouseBody.position[0] = position[0];
+		mouseBody.position[1] = position[1];
+
+		// Create a RevoluteConstraint.
+		// This constraint lets the bodies rotate around a common point
+		mouseConstraint = new p2.RevoluteConstraint(mouseBody, boxBody, {
+		  worldPivot: position,
+		  collideConnected:false
+		});
+		world.addConstraint(mouseConstraint);
+	  }
+	});
+	canvas.addEventListener('touchstart', function(event){
+
+	  // Convert the canvas coordinate to physics coordinates
+	  var position = getPhysicsCoord2(event);
+	  // Check if the cursor is inside the box
+	  var hitBodies = world.hitTest(position, [boxBody]);
+
+	  if(hitBodies.length){
+
+		// Move the mouse body to the cursor position
+		mouseBody.position[0] = position[0];
+		mouseBody.position[1] = position[1];
+
+		// Create a RevoluteConstraint.
+		// This constraint lets the bodies rotate around a common point
+		mouseConstraint = new p2.RevoluteConstraint(mouseBody, boxBody, {
+		  worldPivot: position,
+		  collideConnected:false
+		});
+		world.addConstraint(mouseConstraint);
+	  }
+	});
+
+	// Sync the mouse body to be at the cursor position
+	canvas.addEventListener('mousemove', function(event){
+	  var position = getPhysicsCoord(event);
+	  mouseBody.position[0] = position[0];
+	  mouseBody.position[1] = position[1];
+	});
+	canvas.addEventListener('touchmove', function(event){
+	  var position = getPhysicsCoord2(event);
+	  mouseBody.position[0] = position[0];
+	  mouseBody.position[1] = position[1];
+	});
+
+	// Remove the mouse constraint on mouse up
+	canvas.addEventListener('mouseup', function(event){
+	  world.removeConstraint(mouseConstraint);
+	  mouseConstraint = null;
+	});
+	canvas.addEventListener('touchend', function(event){
+	  world.removeConstraint(mouseConstraint);
+	  mouseConstraint = null;
+	});
+}
+
+// Convert a canvas coordiante to physics coordinate
+function getPhysicsCoord(mouseEvent){
+  var rect = canvas.getBoundingClientRect();
+  var x = mouseEvent.clientX - rect.left;
+  var y = mouseEvent.clientY - rect.top;
+
+  x = x / scaleX;
+  y = (y - h) / -scaleY;
+
+  return [x, y];
+}
+function getPhysicsCoord2(touchEvent){
+  var rect = canvas.getBoundingClientRect();
+  var x = touchEvent.touches[0].clientX - rect.left;
+  var y = touchEvent.touches[0].clientY - rect.top;
+
+  x = x / scaleX;
+  y = (y - h) / -scaleY;
+
+  return [x, y];
+}
+
+function drawObj(){
+	//if(circleBody.position[0]<-p(50)){circleBody.velocity=[0,0];circleBody.position=pc(400,600);}//圆左移出舞台复位且速度为0
+	var x = circleBody.interpolatedPosition[0],
+		y = circleBody.interpolatedPosition[1],
+		radius = circleShape.radius;
+	
+	//stage.removeChild(circleObj1);
+	circleObj1.x = x-radius;
+	circleObj1.y = y+radius;
+	
+	stage.addChild(circleObj1);
+	stage.update();
+	
+	var x = circleBody2.interpolatedPosition[0],
+		y = circleBody2.interpolatedPosition[1],
+		radius = circleShape2.radius;
+	
+	//stage.removeChild(circleObj2);
+	circleObj2.x = x-radius;
+	circleObj2.y = y+radius;
+	
+	stage.addChild(circleObj2);
+	stage.update();
+	
+	var x = boxBody.interpolatedPosition[0],
+        y = boxBody.interpolatedPosition[1];
+		
+	//stage.removeChild(RectObj);
+	RectObj.rotation = boxBody.angle*180/Math.PI;  //rotate around center
+	RectObj.x = x;
+	RectObj.y = y;
+	
+	stage.addChild(RectObj);
+	stage.update();
+
+}
+
+function render(){
+	drawObj();
+}
+
+// To animate the bodies, we must step the world forward in time, using a fixed time step size.
+// The World will run substeps and interpolate automatically for us, to get smooth animation.
+var timeStep = 1 / 60; // seconds
+var maxSubSteps = 5; // Max sub steps to catch up with the wall clock
+var lastTime;
+
+// Animation loop
+function animate(time){
+	requestAnimationFrame(animate);
+	
+	var dt = lastTime ? (time - lastTime) / 1000 : 0;
+	dt = Math.min(1 / 10, dt);
+	lastTime = time;
+	
+	// Move physics bodies forward in time
+	world.step(timeStep, dt, maxSubSteps);
+	
+	// Render scene
+	render();
+}
+
+
+</script>
+</body>
+</html>
